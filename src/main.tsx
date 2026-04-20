@@ -8,7 +8,30 @@ const App = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  const isDebugMode = false; 
+  const [isDebugMode, setIsDebugMode] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'd') {
+        setIsDebugMode(prev => !prev);
+        console.log("🛠️ 录制模式已" + (!isDebugMode ? "开启" : "关闭"));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDebugMode]);
+
+  const handleAddAd = (x: number, y: number) => {
+    const newAd = {
+      id: `ad_${Date.now()}`,
+      x,
+      y,
+      radius: 5,
+      name: "",
+      sarcasmText: "请输入吐槽文案"
+    };
+    console.log("📍 新增点位JSON (请复制到 levels_schema.json): \n", JSON.stringify(newAd, null, 2));
+  }; 
 
   useEffect(() => {
     // 【暴力重构】：既然腾讯云的客户端 SDK 在权限上死磕，我们直接通过 CloudBase 的 HTTP API 强行把数据拉出来。
@@ -96,6 +119,7 @@ const App = () => {
         level={levels[currentLevelIndex]} 
         onNextLevel={handleNextLevel}
         debugMode={isDebugMode}
+        onAddAd={handleAddAd}
       />
     </div>
   );
