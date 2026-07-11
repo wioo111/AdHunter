@@ -1,128 +1,185 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { AdHunterEngine, LevelData } from './AdHunterEngine';
+import { AdHunterEngine, type AdHotspot, type LevelData } from './AdHunterEngine';
+import { DebugPanel } from './DebugPanel';
+import { loadLevels, type LevelSource } from './levelData';
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const App = () => {
   const [levels, setLevels] = useState<LevelData[]>([]);
   const [currentLevelIndex, setCurrentLevelIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
+  const [levelSource, setLevelSource] = useState<LevelSource>('fallback');
+  const [sourceWarning, setSourceWarning] = useState<string>();
   const [isDebugMode, setIsDebugMode] = useState(false);
+  const [activeAdId, setActiveAdId] = useState<string | null>(null);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'd') {
-        setIsDebugMode(prev => !prev);
-        console.log("🛠️ 录制模式已" + (!isDebugMode ? "开启" : "关闭"));
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const usesCommandKey = event.ctrlKey || event.metaKey;
+      if (usesCommandKey && event.shiftKey && event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        setIsDebugMode((current) => {
+          const next = !current;
+          console.info(`标注模式已${next ? '开启' : '关闭'}`);
+          return next;
+        });
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isDebugMode]);
-
-  const handleAddAd = (x: number, y: number) => {
-    const newAd = {
-      id: `ad_${Date.now()}`,
-      x,
-      y,
-      radius: 5,
-      name: "",
-      sarcasmText: "请输入吐槽文案"
-    };
-    console.log("📍 新增点位JSON (请复制到 levels_schema.json): \n", JSON.stringify(newAd, null, 2));
-  }; 
+  }, []);
 
   useEffect(() => {
-    // 【暴力重构】：既然腾讯云的客户端 SDK 在权限上死磕，我们直接通过 CloudBase 的 HTTP API 强行把数据拉出来。
-    // 这是最极简的绕过策略，直接利用你的公开环境 ID 发起 HTTP 查表。
-    const fetchLevelsByHttp = async () => {
+    const controller = new AbortController();
+
+    const fetchLevels = async () => {
       try {
-        const envId = 'q-1-d5gib3mzr6ba550d2';
-        // 构建云开发 HTTP API 查询语句 (类似于 GraphQL 的风格)
-        const query = `db.collection("levels").limit(100).get()`;
-        
-        // 调用腾讯云开发的公开 HTTP 触发器网关 (免登录查库)
-        const response = await fetch(`https://${envId}.ap-shanghai.tcb-api.tencentcloudapi.com/web?env=${envId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'database.queryDocument', query })
-        });
-
-        if (!response.ok) {
-           throw new Error(`HTTP Error: ${response.status}`);
-        }
-
-        const resData = await response.json();
-        
-        // 如果 HTTP 直连失败或返回空，我们做最后的兜底：重新载入本地备份，绝不让页面白屏！
-        if (!resData.data || resData.data.length === 0) {
-          throw new Error("云端数据拉取为空");
-        }
-        
-        // 按照 levelId 排序
-        const sortedData = (resData.data as LevelData[]).sort((a, b) => a.levelId - b.levelId);
-        setLevels(sortedData);
-      } catch (err: any) {
-        console.error("HTTP 暴力拉取失败，启用内置缓存兜底:", err);
-        // 【兜底策略】：与其让玩家看报错，不如直接内置你之前生成好的 9 关 JSON！
-        // 这符合“改变世界”的最终交付原则：绝不交付一个坏掉的页面。
-        import('./fallback_data.json').then((module) => {
-           setLevels(module.default as LevelData[]);
-        }).catch(() => {
-           setErrorMsg("致命错误：云端数据被拦截，且本地兜底数据加载失败。");
-        });
+        setIsLoading(true);
+        setErrorMsg(null);
+        const result = await loadLevels(controller.signal);
+        setLevels(result.levels);
+        setLevelSource(result.source);
+        setSourceWarning(result.warning);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        const message = error instanceof Error ? error.message : '未知错误';
+        setErrorMsg(`关卡数据加载失败：${message}`);
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     };
 
-    fetchLevelsByHttp();
+    void fetchLevels();
+    return () => controller.abort();
   }, []);
 
-  const handleNextLevel = () => {
-    if (currentLevelIndex < levels.length - 1) {
-      setCurrentLevelIndex(currentLevelIndex + 1);
-    } else {
-      alert("全剧终！你已看破红尘！");
-      setCurrentLevelIndex(0);
+  useEffect(() => {
+    setActiveAdId(null);
+  }, [currentLevelIndex, isDebugMode]);
+
+  const currentLevel = levels[currentLevelIndex];
+  const activeAd = useMemo(
+    () => currentLevel?.ads.find((ad) => ad.id === activeAdId) ?? null,
+    [activeAdId, currentLevel],
+  );
+
+  const updateCurrentLevel = (updater: (level: LevelData) => LevelData) => {
+    setLevels((currentLevels) =>
+      currentLevels.map((level, index) => (index === currentLevelIndex ? updater(level) : level)),
+    );
+  };
+
+  const handleAddAd = (x: number, y: number) => {
+    const newAd: AdHotspot = {
+      id: `ad_${Date.now()}`,
+      x: Number(x.toFixed(2)),
+      y: Number(y.toFixed(2)),
+      radius: 5,
+      name: '',
+      sarcasmText: '请输入吐槽文案',
+    };
+
+    updateCurrentLevel((level) => ({ ...level, ads: [...level.ads, newAd] }));
+    setActiveAdId(newAd.id);
+  };
+
+  const handleUpdateActiveAd = (patch: Partial<Omit<AdHotspot, 'id'>>) => {
+    if (!activeAdId) return;
+
+    const safePatch = {
+      ...patch,
+      ...(typeof patch.x === 'number' ? { x: clamp(patch.x, 0, 100) } : {}),
+      ...(typeof patch.y === 'number' ? { y: clamp(patch.y, 0, 100) } : {}),
+      ...(typeof patch.radius === 'number' ? { radius: clamp(patch.radius, 1, 50) } : {}),
+    };
+
+    updateCurrentLevel((level) => ({
+      ...level,
+      ads: level.ads.map((ad) => (ad.id === activeAdId ? { ...ad, ...safePatch } : ad)),
+    }));
+  };
+
+  const handleDeleteActiveAd = () => {
+    if (!activeAdId || !currentLevel || currentLevel.ads.length <= 1) {
+      window.alert('每个关卡至少需要保留一个热点。');
+      return;
     }
+
+    updateCurrentLevel((level) => ({
+      ...level,
+      ads: level.ads.filter((ad) => ad.id !== activeAdId),
+    }));
+    setActiveAdId(null);
+  };
+
+  const handleExportLevels = () => {
+    const blob = new Blob([`${JSON.stringify(levels, null, 2)}\n`], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'levels_schema.json';
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleNextLevel = () => {
+    setCurrentLevelIndex((current) => {
+      if (current < levels.length - 1) return current + 1;
+      window.alert('全部关卡已完成。');
+      return 0;
+    });
   };
 
   if (isLoading) {
-    return (
-      <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#111', color: '#ff4d4f', fontSize: '24px', fontWeight: 'bold' }}>
-        正在突破云端防线拉取数据...
-      </div>
-    );
+    return <StatusScreen message="正在加载关卡数据…" />;
   }
 
   if (errorMsg) {
-    return (
-      <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#111', color: '#ff4d4f', padding: '20px', textAlign: 'center' }}>
-        {errorMsg}
-      </div>
-    );
+    return <StatusScreen message={errorMsg} />;
   }
 
-  if (levels.length === 0) {
-    return (
-      <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#111', color: 'white' }}>
-        云端暂无数据，且无兜底数据。
-      </div>
-    );
+  if (!currentLevel) {
+    return <StatusScreen message="没有可用关卡。" />;
   }
 
   return (
-    <div style={{ width: '100vw', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#111' }}>
-      <AdHunterEngine 
-        level={levels[currentLevelIndex]} 
+    <main style={{ width: '100vw', minHeight: '100vh', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#111', padding: '16px 12px' }}>
+      <AdHunterEngine
+        level={currentLevel}
         onNextLevel={handleNextLevel}
         debugMode={isDebugMode}
         onAddAd={handleAddAd}
+        activeAdId={activeAdId}
+        onSelectAd={setActiveAdId}
       />
-    </div>
+
+      {isDebugMode && (
+        <DebugPanel
+          level={currentLevel}
+          activeAd={activeAd}
+          source={levelSource}
+          sourceWarning={sourceWarning}
+          onChange={handleUpdateActiveAd}
+          onDelete={handleDeleteActiveAd}
+          onExport={handleExportLevels}
+        />
+      )}
+    </main>
   );
 };
 
-ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
+const StatusScreen = ({ message }: { message: string }) => (
+  <div style={{ width: '100vw', minHeight: '100vh', boxSizing: 'border-box', display: 'grid', placeItems: 'center', background: '#111', color: '#ff7875', padding: 20, textAlign: 'center', fontSize: 20, fontWeight: 700 }}>
+    {message}
+  </div>
+);
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
