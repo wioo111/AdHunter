@@ -1,17 +1,17 @@
 {
   "name": "soft-ad-hunter",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "vite",
-    "build": "tsc; vite build"
-  },
-  "keywords": [],
-  "author": "",
+  "private": true,
+  "description": "A browser game for spotting native advertising placements in images.",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build",
+    "check": "npm run build",
+    "preview": "vite preview"
+  },
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
