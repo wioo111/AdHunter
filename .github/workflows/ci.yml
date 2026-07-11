@@ -25,4 +25,11 @@ jobs:
         with:
           name: npm-ci-log
           path: npm-ci.log
-      - run: npm run check
+      - name: Typecheck and build
+        run: npm run check 2>&1 | tee check.log
+      - name: Upload validation diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-log
+          path: check.log
