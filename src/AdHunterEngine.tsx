@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 export interface AdHotspot {
   id: string;
@@ -16,63 +16,91 @@ export interface LevelData {
   ads: AdHotspot[];
 }
 
-export const AdHunterEngine: React.FC<{ 
-  level: LevelData; 
+interface AdHunterEngineProps {
+  level: LevelData;
   onNextLevel: () => void;
   debugMode?: boolean;
   onAddAd?: (x: number, y: number) => void;
-  // 新增接口：选中某个热区和修改热区半径
   activeAdId?: string | null;
   onSelectAd?: (id: string | null) => void;
-}> = ({ level, onNextLevel, debugMode = false, onAddAd, activeAdId, onSelectAd }) => {
+}
+
+const findHitAd = (ads: AdHotspot[], x: number, y: number): AdHotspot | undefined =>
+  ads
+    .map((ad) => ({ ad, distance: Math.hypot(x - ad.x, y - ad.y) }))
+    .filter(({ ad, distance }) => distance <= ad.radius)
+    .sort((left, right) => left.distance - right.distance)[0]?.ad;
+
+export const AdHunterEngine: React.FC<AdHunterEngineProps> = ({
+  level,
+  onNextLevel,
+  debugMode = false,
+  onAddAd,
+  activeAdId,
+  onSelectAd,
+}) => {
   const [foundAds, setFoundAds] = useState<string[]>([]);
   const [activePopup, setActivePopup] = useState<AdHotspot | null>(null);
+  const [imageError, setImageError] = useState(false);
+  const popupTimerRef = useRef<number | null>(null);
+
+  const clearPopupTimer = () => {
+    if (popupTimerRef.current !== null) {
+      window.clearTimeout(popupTimerRef.current);
+      popupTimerRef.current = null;
+    }
+  };
 
   useEffect(() => {
     setFoundAds([]);
     setActivePopup(null);
+    setImageError(false);
+    clearPopupTimer();
   }, [level.levelId]);
-  
-  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const clickXPercent = ((e.clientX - rect.left) / rect.width) * 100;
-    const clickYPercent = ((e.clientY - rect.top) / rect.height) * 100;
+
+  useEffect(() => () => clearPopupTimer(), []);
+
+  const showPopup = (ad: AdHotspot) => {
+    clearPopupTimer();
+    setActivePopup(ad);
+    popupTimerRef.current = window.setTimeout(() => {
+      setActivePopup(null);
+      popupTimerRef.current = null;
+    }, 3000);
+  };
+
+  const handleImageClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (imageError) return;
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const clickXPercent = ((event.clientX - rect.left) / rect.width) * 100;
+    const clickYPercent = ((event.clientY - rect.top) / rect.height) * 100;
+    const hitAd = findHitAd(level.ads, clickXPercent, clickYPercent);
 
     if (debugMode) {
-      // 检查是否点击在已有的热区内，如果是，则选中它而不是创建新热区
-      const clickedExistingAd = level.ads.find(ad => {
-        const dist = Math.sqrt(Math.pow(clickXPercent - ad.x, 2) + Math.pow(clickYPercent - ad.y, 2));
-        return dist <= ad.radius;
-      });
-
-      if (clickedExistingAd && onSelectAd) {
-        onSelectAd(clickedExistingAd.id);
-      } else if (onAddAd) {
-        onAddAd(clickXPercent, clickYPercent);
+      if (hitAd) {
+        onSelectAd?.(hitAd.id);
+      } else {
+        onAddAd?.(clickXPercent, clickYPercent);
       }
-      return; 
+      return;
     }
 
-    const hitAd = level.ads.find(ad => {
-      const dist = Math.sqrt(Math.pow(clickXPercent - ad.x, 2) + Math.pow(clickYPercent - ad.y, 2));
-      return dist <= ad.radius;
-    });
-
-    if (hitAd && !foundAds.includes(hitAd.id)) {
-      setFoundAds([...foundAds, hitAd.id]);
-      setActivePopup(hitAd);
-      setTimeout(() => setActivePopup(null), 3000);
-    } else {
-      e.currentTarget.classList.remove('shake');
-      void e.currentTarget.offsetWidth;
-      e.currentTarget.classList.add('shake');
+    if (hitAd) {
+      setFoundAds((current) => (current.includes(hitAd.id) ? current : [...current, hitAd.id]));
+      showPopup(hitAd);
+      return;
     }
+
+    event.currentTarget.classList.remove('shake');
+    void event.currentTarget.offsetWidth;
+    event.currentTarget.classList.add('shake');
   };
 
   const isComplete = foundAds.length === level.ads.length && level.ads.length > 0 && !debugMode;
 
   return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: '800px', margin: '0 auto', color: 'white' }}>
+    <div style={{ position: 'relative', width: '100%', maxWidth: 800, margin: '0 auto', color: 'white' }}>
       <style>
         {`
           @keyframes shake {
@@ -86,37 +114,50 @@ export const AdHunterEngine: React.FC<{
         `}
       </style>
 
-      <div style={{ padding: '10px 20px', background: '#333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ margin: 0, fontSize: '16px' }}>{debugMode ? `🛠️ [录制模式] ${level.title}` : level.title}</h2>
-        {!debugMode && <span style={{ fontWeight: 'bold', color: '#ff4d4f' }}>已找到: {foundAds.length} / {level.ads.length}</span>}
-        {debugMode && <span style={{ fontWeight: 'bold', color: '#4caf50' }}>已标记: {level.ads.length} 处</span>}
+      <div style={{ padding: '10px 20px', background: '#333', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+        <h2 style={{ margin: 0, fontSize: 16 }}>{debugMode ? `🛠️ [标注模式] ${level.title}` : level.title}</h2>
+        {!debugMode && <span style={{ fontWeight: 'bold', color: '#ff4d4f', whiteSpace: 'nowrap' }}>已找到：{foundAds.length} / {level.ads.length}</span>}
+        {debugMode && <span style={{ fontWeight: 'bold', color: '#4caf50', whiteSpace: 'nowrap' }}>已标记：{level.ads.length}</span>}
       </div>
 
-      <div 
+      <div
         onClick={handleImageClick}
-        style={{ position: 'relative', width: '100%', overflow: 'hidden', cursor: debugMode ? 'crosshair' : 'pointer', userSelect: 'none' }}
+        style={{ position: 'relative', width: '100%', overflow: 'hidden', cursor: debugMode ? 'crosshair' : 'pointer', userSelect: 'none', background: '#222' }}
       >
-        <img 
-          src={level.imageUrl} 
-          alt="场景" 
-          style={{ width: '100%', height: 'auto', display: 'block', pointerEvents: 'none' }} 
-        />
+        {imageError ? (
+          <div style={{ minHeight: 320, display: 'grid', placeItems: 'center', padding: 24, color: '#ff7875', textAlign: 'center' }}>
+            图片加载失败：{level.imageUrl}
+          </div>
+        ) : (
+          <img
+            src={level.imageUrl}
+            alt={level.title}
+            draggable={false}
+            onError={() => setImageError(true)}
+            style={{ width: '100%', height: 'auto', display: 'block', pointerEvents: 'none' }}
+          />
+        )}
 
-        {level.ads.filter(ad => debugMode || foundAds.includes(ad.id)).map(ad => {
+        {!imageError && level.ads.filter((ad) => debugMode || foundAds.includes(ad.id)).map((ad) => {
           const isActive = debugMode && activeAdId === ad.id;
           return (
-            <div 
+            <div
               key={ad.id}
+              aria-hidden="true"
               style={{
-                position: 'absolute', left: `${ad.x}%`, top: `${ad.y}%`, width: `${ad.radius * 2}%`, height: `${ad.radius * 2}%`,
-                transform: 'translate(-50%, -50%)', 
-                // 选中状态下，边框变粗且变成黄色，方便调节时观察
-                border: isActive ? '6px dashed #fadb14' : '4px solid #ff4d4f', 
+                position: 'absolute',
+                left: `${ad.x}%`,
+                top: `${ad.y}%`,
+                width: `${ad.radius * 2}%`,
+                height: `${ad.radius * 2}%`,
+                transform: 'translate(-50%, -50%)',
+                border: isActive ? '6px dashed #fadb14' : '4px solid #ff4d4f',
                 borderRadius: '50%',
-                boxShadow: isActive ? '0 0 20px rgba(250, 219, 20, 0.8)' : '0 0 15px rgba(255, 77, 79, 0.8)', 
+                boxSizing: 'border-box',
+                boxShadow: isActive ? '0 0 20px rgba(250, 219, 20, 0.8)' : '0 0 15px rgba(255, 77, 79, 0.8)',
                 pointerEvents: 'none',
                 backgroundColor: debugMode ? (isActive ? 'rgba(250, 219, 20, 0.3)' : 'rgba(255, 77, 79, 0.3)') : 'transparent',
-                transition: 'all 0.1s ease-out'
+                transition: 'all 0.1s ease-out',
               }}
             />
           );
@@ -124,30 +165,19 @@ export const AdHunterEngine: React.FC<{
       </div>
 
       {activePopup && !debugMode && (
-        <div style={{
-          position: 'absolute', top: '20%', left: '50%', transform: 'translate(-50%, -50%)',
-          background: 'rgba(0,0,0,0.85)', padding: '20px', borderRadius: '12px', zIndex: 100,
-          border: '2px solid #ff4d4f', width: '80%', maxWidth: '400px', textAlign: 'center'
-        }}>
-          <h3 style={{ color: '#ff4d4f', margin: '0 0 10px 0' }}>📸 抓到了！{activePopup.name}</h3>
-          <p style={{ margin: 0, fontSize: '16px', lineHeight: '1.5' }}>{activePopup.sarcasmText}</p>
+        <div style={{ position: 'absolute', top: '20%', left: '50%', transform: 'translate(-50%, -50%)', background: 'rgba(0,0,0,0.88)', padding: 20, borderRadius: 12, zIndex: 100, border: '2px solid #ff4d4f', width: '80%', maxWidth: 400, boxSizing: 'border-box', textAlign: 'center' }}>
+          <h3 style={{ color: '#ff4d4f', margin: '0 0 10px' }}>抓到了{activePopup.name ? `：${activePopup.name}` : '！'}</h3>
+          <p style={{ margin: 0, fontSize: 16, lineHeight: 1.5 }}>{activePopup.sarcasmText || '识别到一处软广植入。'}</p>
         </div>
       )}
 
       {isComplete && (
-        <div style={{
-          position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-          background: 'rgba(0,0,0,0.9)', display: 'flex', flexDirection: 'column',
-          justifyContent: 'center', alignItems: 'center', zIndex: 200
-        }}>
-          <h1 style={{ color: '#ff4d4f', fontSize: '32px', marginBottom: '10px' }}>通关！</h1>
-          <p style={{ fontSize: '18px', color: '#ccc', marginBottom: '30px' }}>资本的软广无处遁形。</p>
-          <button 
-            onClick={onNextLevel}
-            style={{
-              padding: '12px 30px', background: '#ff4d4f', color: 'white', border: 'none',
-              borderRadius: '25px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer'
-          }}>进入下一关</button>
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', zIndex: 200, padding: 24, textAlign: 'center' }}>
+          <h1 style={{ color: '#ff4d4f', fontSize: 32, marginBottom: 10 }}>通关</h1>
+          <p style={{ fontSize: 18, color: '#ccc', marginBottom: 30 }}>本关植入点已全部找出。</p>
+          <button type="button" onClick={onNextLevel} style={{ padding: '12px 30px', background: '#ff4d4f', color: 'white', border: 'none', borderRadius: 25, fontSize: 18, fontWeight: 'bold', cursor: 'pointer' }}>
+            进入下一关
+          </button>
         </div>
       )}
     </div>
