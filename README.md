@@ -32,7 +32,7 @@ npm run check
 1. 点击已有红色热点，编辑面板会选中它。
 2. 点击图片空白处创建新热点。
 3. 修改名称、吐槽文案、坐标和判定半径。
-4. 点击“导出全部 JSON”，下载新的 `levels_schema.json`。
+4. 点击“导出全部 JSON”，下载新的 `levels.json`。
 
 标注结果只存在于当前浏览器会话，不会直接写入 CloudBase。导出的 JSON 需要人工审核；确认无误后用它覆盖 `content/levels.json`，如需同步云端再单独导入 CloudBase。
 

@@ -121,7 +121,7 @@ export const App = () => {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = 'levels_schema.json';
+    anchor.download = 'levels.json';
     anchor.click();
     URL.revokeObjectURL(url);
   };
