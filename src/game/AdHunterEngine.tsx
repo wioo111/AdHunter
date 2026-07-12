@@ -1,20 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-
-export interface AdHotspot {
-  id: string;
-  x: number;
-  y: number;
-  radius: number;
-  name: string;
-  sarcasmText: string;
-}
-
-export interface LevelData {
-  levelId: number;
-  title: string;
-  imageUrl: string;
-  ads: AdHotspot[];
-}
+import { findHitAd } from '../../shared/hitTest';
+import type { AdHotspot, LevelData } from '../../shared/types';
 
 interface AdHunterEngineProps {
   level: LevelData;
@@ -24,12 +10,6 @@ interface AdHunterEngineProps {
   activeAdId?: string | null;
   onSelectAd?: (id: string | null) => void;
 }
-
-const findHitAd = (ads: AdHotspot[], x: number, y: number): AdHotspot | undefined =>
-  ads
-    .map((ad) => ({ ad, distance: Math.hypot(x - ad.x, y - ad.y) }))
-    .filter(({ ad, distance }) => distance <= ad.radius)
-    .sort((left, right) => left.distance - right.distance)[0]?.ad;
 
 export const AdHunterEngine: React.FC<AdHunterEngineProps> = ({
   level,

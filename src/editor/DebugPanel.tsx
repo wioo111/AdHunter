@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import type { AdHotspot, LevelData } from './AdHunterEngine';
-import type { LevelSource } from './levelData';
+import type { AdHotspot, LevelData } from '../../shared/types';
+import type { LevelSource } from '../data/loadLevels';
 
 interface DebugPanelProps {
   level: LevelData;
