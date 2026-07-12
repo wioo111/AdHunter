@@ -5,7 +5,7 @@
 ## 当前能力
 
 - 从腾讯云 CloudBase `levels` 集合读取关卡。
-- 云端不可用时自动切换到本地 `src/fallback_data.json`。
+- 云端不可用时自动切换到本地 `content/levels.json`。
 - 对关卡、坐标、半径和重复 ID 做运行时校验，避免坏数据进入渲染层。
 - 支持热点命中、重复查看提示、通关和自动切换下一关。
 - 内置标注模式，可新增、选择、移动、调整半径、修改文案、删除热点，并导出完整 JSON。
@@ -34,7 +34,26 @@ npm run check
 3. 修改名称、吐槽文案、坐标和判定半径。
 4. 点击“导出全部 JSON”，下载新的 `levels_schema.json`。
 
-标注结果只存在于当前浏览器会话，不会直接写入 CloudBase。导出的 JSON 需要人工审核后再同步到云端和 `src/fallback_data.json`。
+标注结果只存在于当前浏览器会话，不会直接写入 CloudBase。导出的 JSON 需要人工审核；确认无误后用它覆盖 `content/levels.json`，如需同步云端再单独导入 CloudBase。
+
+## 目录结构
+
+```text
+AdHunter/
+├─ content/
+│  └─ levels.json          # 唯一的本地关卡数据
+├─ shared/
+│  ├─ types.ts             # 共享数据类型
+│  ├─ hitTest.ts           # 热点命中算法
+│  └─ levelValidation.ts   # 关卡数据校验
+├─ src/
+│  ├─ main.tsx             # React 启动入口
+│  ├─ App.tsx              # 页面状态与模块编排
+│  ├─ game/                # 游戏显示和交互
+│  ├─ editor/              # 标注工具
+│  └─ data/                # CloudBase 与本地数据加载
+└─ public/                 # 关卡图片
+```
 
 ## 数据结构
 
@@ -70,9 +89,9 @@ CloudBase 环境 ID 不是密钥。真正的数据安全边界仍由数据库权
 
 ## 工程约束
 
-- `src/fallback_data.json` 是离线兜底数据。
-- 根目录 `levels_schema.json` 是便于人工维护和导入的同源副本。
-- 两份数据发生变化时必须同步更新。
+- `content/levels.json` 是仓库内唯一的本地关卡数据，也是 CloudBase 读取失败时的离线兜底。
+- 标注器导出的 `levels.json` 经人工审核后，可直接覆盖上述文件。
+- `shared/` 只存放可跨平台复用的纯 TypeScript，不得依赖 React、DOM、CloudBase SDK 或微信 API。
 - Pull Request 会自动执行 TypeScript 检查和 Vite 构建。
 
 后续开发顺序见 [ROADMAP.md](./ROADMAP.md)。
